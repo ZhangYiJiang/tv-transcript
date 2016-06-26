@@ -92,6 +92,7 @@ class LineSet(JSONSerializable, IterableWrapper):
 
 class PageParser:
     cache = 'cache'
+    parser = 'html.parser'
     ttl = 360
 
     @classmethod
@@ -118,7 +119,7 @@ class PageParser:
     @classmethod
     def get_page(cls, url):
         # TODO: use pickle for caching
-        return BeautifulSoup(cls.get_file(url), "lxml")
+        return BeautifulSoup(cls.get_file(url), cls.parser)
 
     @classmethod
     def clear_cache(cls, url):
@@ -325,11 +326,12 @@ class Show(PageParser, IterableWrapper):
     ttl = 60 * 24
     iterable = 'seasons'
 
-    def __init__(self, url=None, hydrate=False, season=Season, episode=Episode, line=Line):
+    def __init__(self, url=None, hydrate=False, season=Season, episode=Episode, line=Line, parser='html.parser'):
         self.seasons = []
         self.episode_class = episode
         self.season_class = season
         self.line_class = line
+        PageParser.parser = parser
 
         if url:
             self.load(url)
