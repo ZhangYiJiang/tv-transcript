@@ -1,0 +1,607 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>TV Transcript’s documentation &mdash; tv_transcript 0.0.1 documentation</title>
+    
+    <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '0.0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="tv_transcript 0.0.1 documentation" href="#" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head>
+  <body role="document">
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <span class="target" id="module-tv_transcript"></span><div class="section" id="tv-transcript-s-documentation">
+<h1>TV Transcript&#8217;s documentation<a class="headerlink" href="#tv-transcript-s-documentation" title="Permalink to this headline">¶</a></h1>
+<p>This module exposes several classes that simplifies the process of scraping,
+parsing, serializing and querying a television show&#8217;s transcript.</p>
+<p>Uses <a class="reference external" href="https://www.crummy.com/software/BeautifulSoup/">BeautifulSoup</a> for parsing
+and <a class="reference external" href="http://docs.python-requests.org/en/master/">requests</a> for HTTP.</p>
+<div class="section" id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Permalink to this headline">¶</a></h2>
+<p>Start by subclassing the <a class="reference internal" href="#tv_transcript.Show" title="tv_transcript.Show"><code class="xref py py-class docutils literal"><span class="pre">Show</span></code></a>, <a class="reference internal" href="#tv_transcript.Season" title="tv_transcript.Season"><code class="xref py py-class docutils literal"><span class="pre">Season</span></code></a>, <a class="reference internal" href="#tv_transcript.Episode" title="tv_transcript.Episode"><code class="xref py py-class docutils literal"><span class="pre">Episode</span></code></a> and
+<a class="reference internal" href="#tv_transcript.Line" title="tv_transcript.Line"><code class="xref py py-class docutils literal"><span class="pre">Line</span></code></a> classes, and implementing the parsing functions in each of them,
+then overriding <code class="xref py py-meth docutils literal"><span class="pre">Show.__init__()</span></code> to take in the subclasses as default parameters.</p>
+<p>The parsing functions take in a <cite>BeautifulSoup</cite> instance that represents the page
+they are parsing. The example below shows the minimal amount of subclasses needed
+to get started.</p>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p class="last">The parsing code in this section are simplified and do not actually work.
+See &lt;<a class="reference external" href="https://github.com/ZhangYiJiang/mlp-visualization">https://github.com/ZhangYiJiang/mlp-visualization</a>&gt; for a real example of parsing code.</p>
+</div>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">tv_transcript</span> <span class="k">import</span> <span class="n">Show</span><span class="p">,</span> <span class="n">Episode</span><span class="p">,</span> <span class="n">Line</span>
+<span class="kn">from</span> <span class="nn">collections</span> <span class="k">import</span> <span class="n">OrderedDicta</span>
+<span class="kn">import</span> <span class="nn">re</span>
+
+<span class="k">class</span> <span class="nc">MLPEpisode</span><span class="p">(</span><span class="n">Episode</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">_parse</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">page</span><span class="p">):</span>
+        <span class="n">title</span> <span class="o">=</span> <span class="n">page</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="s1">&#39;#WikiaPageHeader h1&#39;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">string</span>
+        <span class="n">lines</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">for</span> <span class="n">dd</span> <span class="ow">in</span> <span class="n">page</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="s1">&#39;#mw-content-text &gt; dl&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">children</span><span class="p">:</span>
+            <span class="n">speaker</span><span class="p">,</span> <span class="n">line</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_text</span><span class="p">(</span><span class="n">dd</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;:&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+
+            <span class="c1"># each dictionary in lines will be passed as **kwargs to the Line constructor</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+                 <span class="s1">&#39;speaker&#39;</span><span class="p">:</span> <span class="n">speaker</span><span class="p">,</span>
+                 <span class="s1">&#39;text&#39;</span><span class="p">:</span> <span class="n">line</span>
+            <span class="p">})</span>
+        <span class="k">return</span> <span class="n">title</span><span class="p">,</span> <span class="n">lines</span>
+
+<span class="k">class</span> <span class="nc">MLPLine</span><span class="p">(</span><span class="n">Line</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">_parse_speaker</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">,</span> <span class="n">episode</span><span class="p">,</span> <span class="n">number</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">set</span><span class="p">(</span><span class="nb">filter</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">r&#39;\s*(?:,|\band\b)\s*&#39;</span><span class="p">,</span> <span class="n">text</span><span class="p">)))</span>
+
+    <span class="k">def</span> <span class="nf">_parse_text</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">,</span> <span class="n">episode</span><span class="p">,</span> <span class="n">number</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">text</span>
+
+<span class="k">class</span> <span class="nc">MyLittlePony</span><span class="p">(</span><span class="n">Show</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">episode</span><span class="o">=</span><span class="n">MLPEpisode</span><span class="p">,</span> <span class="n">line</span><span class="o">=</span><span class="n">MLPLine</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">episode</span><span class="o">=</span><span class="n">episode</span><span class="p">,</span> <span class="n">line</span><span class="o">=</span><span class="n">line</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_parse</span><span class="p">(</span><span class="n">page</span><span class="p">,</span> <span class="n">url</span><span class="p">):</span>
+        <span class="n">seasons</span> <span class="o">=</span> <span class="n">OrderedDict</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">table</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">page</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="s1">&#39;#WikiaArticle table&#39;</span><span class="p">)):</span>
+            <span class="c1"># key: season names, value: list of episode transcript URL</span>
+            <span class="n">seasons</span><span class="p">[</span><span class="s1">&#39;Season &#39;</span> <span class="o">+</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">a</span><span class="o">.</span><span class="n">attr</span><span class="p">[</span><span class="s1">&#39;href&#39;</span><span class="p">]</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">table</span><span class="o">.</span><span class="n">find_all</span><span class="p">(</span><span class="s1">&#39;a&#39;</span><span class="p">)]</span>
+        <span class="k">return</span> <span class="n">seasons</span>
+</pre></div>
+</div>
+<p>To use these classes,</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="c1"># Loads and parses the MLP wiki transcript</span>
+<span class="n">mlp</span> <span class="o">=</span> <span class="n">MyLittlePony</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="s1">&#39;http://mlp.wikia.com/wiki/Episodes&#39;</span><span class="p">)</span>
+
+<span class="c1"># How many words were spoken in the second season?</span>
+<span class="n">mlp</span><span class="o">.</span><span class="n">seasons</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">lines</span><span class="o">.</span><span class="n">wc</span>
+
+<span class="c1"># First 10 lines spoken by Twilight</span>
+<span class="n">mlp</span><span class="o">.</span><span class="n">lines</span><span class="o">.</span><span class="n">by</span><span class="p">(</span><span class="s1">&#39;Twilight Sparkle&#39;</span><span class="p">)[:</span><span class="mi">10</span><span class="p">]</span>
+
+<span class="c1"># All episodes with Princesses in them</span>
+<span class="n">princesses</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;Princess Celestia&#39;</span><span class="p">,</span> <span class="s1">&#39;Princess Luna&#39;</span><span class="p">,</span> <span class="s1">&#39;Princess Cadance&#39;</span><span class="p">}</span>
+<span class="nb">filter</span><span class="p">(</span><span class="k">lambda</span> <span class="n">ep</span><span class="p">:</span> <span class="n">ep</span><span class="o">.</span><span class="n">lines</span><span class="o">.</span><span class="n">speakers</span><span class="p">()</span> <span class="o">&amp;</span> <span class="n">princesses</span><span class="p">,</span> <span class="n">mlp</span><span class="o">.</span><span class="n">episodes</span><span class="p">)</span>
+
+<span class="c1"># Characters who spoke in the episode &#39;The Gift of the Maud Pie&#39;</span>
+<span class="n">mlp</span><span class="o">.</span><span class="n">episode</span><span class="p">(</span><span class="s1">&#39;The Gift of the Maud Pie&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">lines</span><span class="o">.</span><span class="n">speakers</span><span class="p">()</span>
+
+<span class="c1"># Every time Twilight said &#39;Pinkie&#39;</span>
+<span class="n">mlp</span><span class="o">.</span><span class="n">lines</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="k">lambda</span> <span class="n">l</span><span class="p">:</span> <span class="s1">&#39;Twilight Sparkle&#39;</span> <span class="ow">in</span> <span class="n">l</span><span class="o">.</span><span class="n">speaker</span> <span class="ow">and</span> <span class="s1">&#39;Pinkie&#39;</span> <span class="ow">in</span> <span class="n">l</span><span class="o">.</span><span class="n">text</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>You&#8217;ll notice the <code class="docutils literal"><span class="pre">lines</span></code> property that is common to the <a class="reference internal" href="#tv_transcript.Show" title="tv_transcript.Show"><code class="xref py py-class docutils literal"><span class="pre">Show</span></code></a>,
+<a class="reference internal" href="#tv_transcript.Season" title="tv_transcript.Season"><code class="xref py py-class docutils literal"><span class="pre">Season</span></code></a> and <a class="reference internal" href="#tv_transcript.Episode" title="tv_transcript.Episode"><code class="xref py py-class docutils literal"><span class="pre">Episode</span></code></a> objects. This property will always
+contain a <a class="reference internal" href="#tv_transcript.LineSet" title="tv_transcript.LineSet"><code class="xref py py-class docutils literal"><span class="pre">LineSet</span></code></a> object, which is a collection of <a class="reference internal" href="#tv_transcript.Line" title="tv_transcript.Line"><code class="xref py py-class docutils literal"><span class="pre">Line</span></code></a>s
+and exposes many useful methods for working with the transcript.</p>
+<div class="section" id="extending-transcript-models">
+<h3>Extending Transcript Models<a class="headerlink" href="#extending-transcript-models" title="Permalink to this headline">¶</a></h3>
+<p>Because the <a class="reference internal" href="#tv_transcript.Episode" title="tv_transcript.Episode"><code class="xref py py-class docutils literal"><span class="pre">Episode</span></code></a>, <a class="reference internal" href="#tv_transcript.Season" title="tv_transcript.Season"><code class="xref py py-class docutils literal"><span class="pre">Season</span></code></a> and <a class="reference internal" href="#tv_transcript.Show" title="tv_transcript.Show"><code class="xref py py-class docutils literal"><span class="pre">Show</span></code></a> object will respect the
+<a class="reference internal" href="#tv_transcript.Line" title="tv_transcript.Line"><code class="xref py py-class docutils literal"><span class="pre">Line</span></code></a>, <a class="reference internal" href="#tv_transcript.Episode" title="tv_transcript.Episode"><code class="xref py py-class docutils literal"><span class="pre">Episode</span></code></a> and <a class="reference internal" href="#tv_transcript.Season" title="tv_transcript.Season"><code class="xref py py-class docutils literal"><span class="pre">Season</span></code></a> subclasses that are passed into
+<a class="reference internal" href="#tv_transcript.Show" title="tv_transcript.Show"><code class="xref py py-class docutils literal"><span class="pre">Show</span></code></a> constructor, this allows for the customization of the scraping and parsing
+behavior by overriding the appropriate functions, as well as adding new properties
+and methods to the classes to suit the TV show and the intended use of the transcript.</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">ScraperSeason</span><span class="p">(</span><span class="n">Season</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">load</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">episodes</span><span class="p">):</span>
+        <span class="c1"># Let us know which season is being scrapped</span>
+        <span class="nb">print</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">episodes</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">add_episode</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">episode</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">add_episode</span><span class="p">(</span><span class="n">episode</span><span class="p">)</span>
+        <span class="c1"># Let us know which episode has just been scrapped</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">episode</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+
+<span class="k">class</span> <span class="nc">PrincessCheckerLine</span><span class="p">(</span><span class="n">MLPLine</span><span class="p">):</span>
+    <span class="n">princesses</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;Princess Celestia&#39;</span><span class="p">,</span> <span class="s1">&#39;Princess Luna&#39;</span><span class="p">,</span> <span class="s1">&#39;Princess Cadance&#39;</span><span class="p">}</span>
+
+    <span class="k">def</span> <span class="nf">is_princess</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">speaker</span> <span class="o">&amp;</span> <span class="bp">self</span><span class="o">.</span><span class="n">princesses</span>
+
+<span class="c1"># This will now print out the season and episode names as they are being scrapped</span>
+<span class="n">mlp</span> <span class="o">=</span> <span class="n">MyLittlePony</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="s1">&#39;http://mlp.wikia.com/wiki/Episodes&#39;</span><span class="p">,</span> <span class="n">season</span><span class="o">=</span><span class="n">ScraperSeason</span><span class="p">,</span> <span class="n">line</span><span class="o">=</span><span class="n">PrincessCheckerLine</span><span class="p">)</span>
+
+<span class="c1"># How many lines are spoken by Princesses?</span>
+<span class="nb">len</span><span class="p">(</span><span class="n">show</span><span class="o">.</span><span class="n">lines</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="k">lambda</span> <span class="n">l</span><span class="p">:</span> <span class="n">l</span><span class="o">.</span><span class="n">is_princess</span><span class="p">()))</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="serialization-and-deserialization">
+<h3>Serialization and Deserialization<a class="headerlink" href="#serialization-and-deserialization" title="Permalink to this headline">¶</a></h3>
+<p>Since scraping and parsing transcripts is time consuming, it is useful to persist the result
+to disk, and read it off that when needed. This is also useful when the results are needed else
+where. To do so, use <a class="reference internal" href="#tv_transcript.Show.serialize" title="tv_transcript.Show.serialize"><code class="xref py py-meth docutils literal"><span class="pre">Show.serialize()</span></code></a> to persist the transcript data to disk in JSON format.
+To retrieve the saved data, use the <em>hydrate</em> parameter when instantiating the <a class="reference internal" href="#tv_transcript.Show" title="tv_transcript.Show"><code class="xref py py-class docutils literal"><span class="pre">Show</span></code></a> class.</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="n">mlp</span> <span class="o">=</span> <span class="n">MyLittlePony</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="s1">&#39;http://mlp.wikia.com/wiki/Episodes&#39;</span><span class="p">)</span>
+<span class="n">mlp</span><span class="o">.</span><span class="n">serialize</span><span class="p">()</span>
+
+<span class="c1"># Later on...</span>
+<span class="n">mlp</span> <span class="o">=</span> <span class="n">MyLittlePony</span><span class="p">(</span><span class="n">hydrate</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>By default the data is saved to a folder named the lowercase of the class name. To customize this,
+override the <a class="reference internal" href="#tv_transcript.Show.storage_dir" title="tv_transcript.Show.storage_dir"><code class="xref py py-meth docutils literal"><span class="pre">Show.storage_dir()</span></code></a> method on the <a class="reference internal" href="#tv_transcript.Show" title="tv_transcript.Show"><code class="xref py py-class docutils literal"><span class="pre">Show</span></code></a> class.</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">MyLittlePony</span><span class="p">(</span><span class="n">Show</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">storage_dir</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c1"># Transcript data will always be saved to &#39;results&#39; directory</span>
+        <span class="k">return</span> <span class="s1">&#39;results&#39;</span>
+</pre></div>
+</div>
+<p>To serialize the transcript objects for your own use, you can use the provided
+<code class="xref py py-class docutils literal"><span class="pre">ModelEncoder</span></code> class, which is a subclass of <code class="xref py py-class docutils literal"><span class="pre">json.JSONEncoder</span></code>
+and implements the required <code class="xref py py-func docutils literal"><span class="pre">default()</span></code> method required.</p>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p class="last">The serialized JSON from the encoder is stable - the same data passed to it will result in the same
+output JSON string.</p>
+</div>
+</div>
+<div class="section" id="iteration">
+<h3>Iteration<a class="headerlink" href="#iteration" title="Permalink to this headline">¶</a></h3>
+<p>Since <a class="reference internal" href="#tv_transcript.Show" title="tv_transcript.Show"><code class="xref py py-class docutils literal"><span class="pre">Show</span></code></a>, <a class="reference internal" href="#tv_transcript.Season" title="tv_transcript.Season"><code class="xref py py-class docutils literal"><span class="pre">Season</span></code></a>, <a class="reference internal" href="#tv_transcript.Episode" title="tv_transcript.Episode"><code class="xref py py-class docutils literal"><span class="pre">Episode</span></code></a> and <a class="reference internal" href="#tv_transcript.LineSet" title="tv_transcript.LineSet"><code class="xref py py-class docutils literal"><span class="pre">LineSet</span></code></a> classes
+act as containers, they can be iterated, subscripted and counted like other
+sequence types.</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="c1"># Count number of seasons</span>
+<span class="nb">len</span><span class="p">(</span><span class="n">mlp</span><span class="p">)</span>
+
+<span class="c1"># Number of lines in the episode &#39;Lesson Zero&#39;</span>
+<span class="nb">len</span><span class="p">(</span><span class="n">mlp</span><span class="o">.</span><span class="n">episode</span><span class="p">(</span><span class="s1">&#39;Lesson Zero&#39;</span><span class="p">))</span>
+
+<span class="c1"># Print out every season 4 episode&#39;s name, number and first line</span>
+<span class="k">for</span> <span class="n">ep</span> <span class="ow">in</span> <span class="n">mlp</span><span class="p">[</span><span class="mi">3</span><span class="p">]:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">ep</span><span class="o">.</span><span class="n">number</span><span class="p">,</span> <span class="n">ep</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">ep</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="section" id="class-references">
+<h2>Class References<a class="headerlink" href="#class-references" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="tv_transcript.Show">
+<em class="property">class </em><code class="descname">Show</code><span class="sig-paren">(</span><em>url=None</em>, <em>hydrate=False</em>, <em>season=None</em>, <em>episode=None</em>, <em>line=None</em>, <em>parser='html.parser'</em><span class="sig-paren">)</span> &rarr; None<a class="reference internal" href="_modules/tv_transcript/models.html#Show"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.Show" title="Permalink to this definition">¶</a></dt>
+<dd><p>Top level class representing a television show. Each Show object is an ordered
+collection of Seasons and is an iterable that iterates over Season objects.</p>
+<p>To load existing serialized data from disk, pass in <em>hydrate</em> as <code class="docutils literal"><span class="pre">True</span></code>.</p>
+<p>To parse a show&#8217;s transcript index page, subclass and implement the
+<a class="reference internal" href="#tv_transcript.Show._parse" title="tv_transcript.Show._parse"><code class="xref py py-meth docutils literal"><span class="pre">_parse()</span></code></a> method, then pass in the URL of the transcript index page
+as <em>url</em> when instantiating a new instance of the subclass.</p>
+<p>If <em>line</em>, <em>episode</em>, <em>season</em> are passed subclasses to <a class="reference internal" href="#tv_transcript.Line" title="tv_transcript.Line"><code class="xref py py-class docutils literal"><span class="pre">Line</span></code></a>, <a class="reference internal" href="#tv_transcript.Episode" title="tv_transcript.Episode"><code class="xref py py-class docutils literal"><span class="pre">Episode</span></code></a>
+and <a class="reference internal" href="#tv_transcript.Season" title="tv_transcript.Season"><code class="xref py py-class docutils literal"><span class="pre">Season</span></code></a> respectively, they will be used in place of the default
+classes when they are instantiated. This is needed to enable parsing of transcripts
+as well as modifying parsing and scraping behavior, as well as adding additional
+methods and attributes to the transcript objects.</p>
+<p>The <em>parser</em> which BeautifulSoup uses when parsing the HTML. See
+<a class="reference external" href="https://www.crummy.com/software/BeautifulSoup/bs4/doc/#installing-a-parser">BeautifulSoup&#8217;s documentation</a>
+for the parsers that are available.</p>
+<dl class="attribute">
+<dt id="tv_transcript.Show.seasons">
+<code class="descname">seasons</code><a class="headerlink" href="#tv_transcript.Show.seasons" title="Permalink to this definition">¶</a></dt>
+<dd><p>List of <a class="reference internal" href="#tv_transcript.Season" title="tv_transcript.Season"><code class="xref py py-class docutils literal"><span class="pre">Season</span></code></a>s in this show</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="tv_transcript.Show.episodes">
+<code class="descname">episodes</code><a class="headerlink" href="#tv_transcript.Show.episodes" title="Permalink to this definition">¶</a></dt>
+<dd><p>List of all <a class="reference internal" href="#tv_transcript.Episode" title="tv_transcript.Episode"><code class="xref py py-class docutils literal"><span class="pre">Episode</span></code></a> in this show</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="tv_transcript.Show.lines">
+<code class="descname">lines</code><a class="headerlink" href="#tv_transcript.Show.lines" title="Permalink to this definition">¶</a></dt>
+<dd><p>A <a class="reference internal" href="#tv_transcript.LineSet" title="tv_transcript.LineSet"><code class="xref py py-class docutils literal"><span class="pre">LineSet</span></code></a> containing all lines in the show</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="tv_transcript.Show.episode">
+<code class="descname">episode</code><span class="sig-paren">(</span><em>name: str</em><span class="sig-paren">)</span> &rarr; typing.Union[tv_transcript.models.Episode, NoneType]<a class="reference internal" href="_modules/tv_transcript/models.html#Show.episode"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.Show.episode" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the first episode with <em>name</em>.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="tv_transcript.Show.season">
+<code class="descname">season</code><span class="sig-paren">(</span><em>name</em><span class="sig-paren">)</span> &rarr; typing.Union[tv_transcript.models.Season, NoneType]<a class="reference internal" href="_modules/tv_transcript/models.html#Show.season"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.Show.season" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the first season with <em>name</em>.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="tv_transcript.Show.serialize">
+<code class="descname">serialize</code><span class="sig-paren">(</span><span class="sig-paren">)</span> &rarr; None<a class="reference internal" href="_modules/tv_transcript/models.html#Show.serialize"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.Show.serialize" title="Permalink to this definition">¶</a></dt>
+<dd><p>Persists the transcript data in this model to disk in JSON format. Saves the data to the
+directory given my <a class="reference internal" href="#tv_transcript.Show.storage_dir" title="tv_transcript.Show.storage_dir"><code class="xref py py-meth docutils literal"><span class="pre">storage_dir()</span></code></a>.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="tv_transcript.Show._parse">
+<code class="descname">_parse</code><span class="sig-paren">(</span><em>page: bs4.BeautifulSoup</em>, <em>url: str</em><span class="sig-paren">)</span> &rarr; typing.Union[collections.OrderedDict, typing.Sequence[typing.Tuple[str, typing.Sequence[str]]]]<a class="reference internal" href="_modules/tv_transcript/models.html#Show._parse"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.Show._parse" title="Permalink to this definition">¶</a></dt>
+<dd><p>Implement this method in a subclasses such that it returns an <code class="docutils literal"><span class="pre">OrderedDict</span></code> or a list of
+2-tuples of season name as key and a list of episode URLs as value.</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">_parse</span><span class="p">(</span><span class="n">page</span><span class="p">,</span> <span class="n">url</span><span class="p">):</span>
+   <span class="n">seasons</span> <span class="o">=</span> <span class="n">OrderedDict</span><span class="p">()</span>
+   <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">table</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">page</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="s1">&#39;#WikiaArticle table&#39;</span><span class="p">)):</span>
+       <span class="c1"># key: season names, value: list of episode transcript URL</span>
+       <span class="n">seasons</span><span class="p">[</span><span class="s1">&#39;Season &#39;</span> <span class="o">+</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">a</span><span class="o">.</span><span class="n">attr</span><span class="p">[</span><span class="s1">&#39;href&#39;</span><span class="p">]</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">table</span><span class="o">.</span><span class="n">find_all</span><span class="p">(</span><span class="s1">&#39;a&#39;</span><span class="p">)]</span>
+   <span class="k">return</span> <span class="n">seasons</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="method">
+<dt id="tv_transcript.Show.add_season">
+<code class="descname">add_season</code><span class="sig-paren">(</span><em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span> &rarr; tv_transcript.models.Season<a class="reference internal" href="_modules/tv_transcript/models.html#Show.add_season"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.Show.add_season" title="Permalink to this definition">¶</a></dt>
+<dd><p>Add a new season object to the current list of seasons. Passes all arguments
+to the constructor of the <a class="reference internal" href="#tv_transcript.Season" title="tv_transcript.Season"><code class="xref py py-class docutils literal"><span class="pre">Season</span></code></a> class used by the show. There is usually
+no need to call this function directly since <a class="reference internal" href="#tv_transcript.Show.load" title="tv_transcript.Show.load"><code class="xref py py-meth docutils literal"><span class="pre">load()</span></code></a> or <a class="reference internal" href="#tv_transcript.Show.hydrate" title="tv_transcript.Show.hydrate"><code class="xref py py-meth docutils literal"><span class="pre">hydrate()</span></code></a>
+will call this automatically.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="tv_transcript.Show.storage_dir">
+<code class="descname">storage_dir</code><span class="sig-paren">(</span><span class="sig-paren">)</span> &rarr; str<a class="reference internal" href="_modules/tv_transcript/models.html#Show.storage_dir"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.Show.storage_dir" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns the directory to store the data when serializing the transcript.
+Override this method to change the location. Defaults to the lowercase of the class name.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="tv_transcript.Show.load">
+<code class="descname">load</code><span class="sig-paren">(</span><em>url: str</em><span class="sig-paren">)</span> &rarr; tv_transcript.models.Show<a class="reference internal" href="_modules/tv_transcript/models.html#Show.load"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.Show.load" title="Permalink to this definition">¶</a></dt>
+<dd><p>Scrape and parse the transcript index page given by <em>url</em> to create seasons of
+episodes of the TV show. There is no need to call this function if <em>url</em>
+is already passed to the constructor.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="tv_transcript.Show.hydrate">
+<code class="descname">hydrate</code><span class="sig-paren">(</span><span class="sig-paren">)</span> &rarr; tv_transcript.models.Show<a class="reference internal" href="_modules/tv_transcript/models.html#Show.hydrate"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.Show.hydrate" title="Permalink to this definition">¶</a></dt>
+<dd><p>Loads persisted transcript data from disk. There is no need to call this function
+if the <em>hydrate</em> parameter is already passed to the constructor.</p>
+</dd></dl>
+
+</dd></dl>
+
+<hr class="docutils" />
+<dl class="class">
+<dt id="tv_transcript.LineSet">
+<em class="property">class </em><code class="descname">LineSet</code><span class="sig-paren">(</span><em>*lines</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tv_transcript/models.html#LineSet"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.LineSet" title="Permalink to this definition">¶</a></dt>
+<dd><p>Represents an ordered collection of <a class="reference internal" href="#tv_transcript.Line" title="tv_transcript.Line"><code class="xref py py-class docutils literal"><span class="pre">Line</span></code></a>s. This is returned
+by the <code class="docutils literal"><span class="pre">lines</span></code> property of <a class="reference internal" href="#tv_transcript.Show" title="tv_transcript.Show"><code class="xref py py-class docutils literal"><span class="pre">Show</span></code></a>, <a class="reference internal" href="#tv_transcript.Season" title="tv_transcript.Season"><code class="xref py py-class docutils literal"><span class="pre">Season</span></code></a> and
+<a class="reference internal" href="#tv_transcript.Episode" title="tv_transcript.Episode"><code class="xref py py-class docutils literal"><span class="pre">Episode</span></code></a> objects, which represents all of the lines contained by them.</p>
+<p>Subscript access and iteration of the <a class="reference internal" href="#tv_transcript.Line" title="tv_transcript.Line"><code class="xref py py-class docutils literal"><span class="pre">Line</span></code></a> objects inside
+is allowed:</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="c1"># Counting number of lines in an episode</span>
+<span class="nb">len</span><span class="p">(</span><span class="n">mlp</span><span class="o">.</span><span class="n">episode</span><span class="p">(</span><span class="s1">&#39;Lesson Zero&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">lines</span><span class="p">)</span>
+
+<span class="c1"># Iterating over first twenty lines in a season</span>
+<span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">mlp</span><span class="o">.</span><span class="n">seasons</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="o">.</span><span class="n">lines</span><span class="p">[:</span><span class="mi">20</span><span class="p">]:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">line</span><span class="o">.</span><span class="n">text</span><span class="p">)</span>
+</pre></div>
+</div>
+<dl class="attribute">
+<dt id="tv_transcript.LineSet.wc">
+<code class="descname">wc</code><a class="headerlink" href="#tv_transcript.LineSet.wc" title="Permalink to this definition">¶</a></dt>
+<dd><p>The number of words in all lines inside this set of lines</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="tv_transcript.LineSet.speakers">
+<code class="descname">speakers</code><span class="sig-paren">(</span><span class="sig-paren">)</span> &rarr; set<a class="reference internal" href="_modules/tv_transcript/models.html#LineSet.speakers"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.LineSet.speakers" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a <code class="docutils literal"><span class="pre">set</span></code> of strings representing all speaking characters involved.</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">mlp</span><span class="o">.</span><span class="n">episode</span><span class="p">(</span><span class="s1">&#39;Maud Pie&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">lines</span><span class="o">.</span><span class="n">speakers</span><span class="p">()</span>
+<span class="go">{&#39;Hummingway&#39;, &#39;Rarity&#39;, &#39;Applejack&#39;, &#39;Rainbow Dash&#39;, &#39;Twilight Sparkle&#39;, &#39;Fluttershy&#39;, &#39;Winona&#39;,</span>
+<span class="go"> &#39;Maud Pie&#39;, &#39;Pinkie Pie&#39;}</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="method">
+<dt id="tv_transcript.LineSet.filter">
+<code class="descname">filter</code><span class="sig-paren">(</span><em>predicate</em><span class="sig-paren">)</span> &rarr; tv_transcript.models.LineSet<a class="reference internal" href="_modules/tv_transcript/models.html#LineSet.filter"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.LineSet.filter" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a new <code class="docutils literal"><span class="pre">LineSet</span></code> with only the lines that passes the <em>predicate</em></p>
+</dd></dl>
+
+<dl class="method">
+<dt id="tv_transcript.LineSet.map">
+<code class="descname">map</code><span class="sig-paren">(</span><em>function</em><span class="sig-paren">)</span> &rarr; tv_transcript.models.LineSet<a class="reference internal" href="_modules/tv_transcript/models.html#LineSet.map"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.LineSet.map" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a new <code class="docutils literal"><span class="pre">LineSet</span></code> with all of the lines transformed passing through the
+<em>function</em>. If a new <code class="docutils literal"><span class="pre">LineSet</span></code> is not needed, the global <code class="docutils literal"><span class="pre">map()</span></code> function
+should be used instead.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="tv_transcript.LineSet.by">
+<code class="descname">by</code><span class="sig-paren">(</span><em>char</em><span class="sig-paren">)</span> &rarr; tv_transcript.models.LineSet<a class="reference internal" href="_modules/tv_transcript/models.html#LineSet.by"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.LineSet.by" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a <a class="reference internal" href="#tv_transcript.LineSet" title="tv_transcript.LineSet"><code class="xref py py-class docutils literal"><span class="pre">LineSet</span></code></a> of all lines spoken by a single character, or
+any one of a group of characters.</p>
+<div class="highlight-default"><div class="highlight"><pre><span></span><span class="c1"># Lines spoken by Twilight</span>
+<span class="n">episode</span><span class="o">.</span><span class="n">lines</span><span class="o">.</span><span class="n">by</span><span class="p">(</span><span class="s1">&#39;Twilight Sparkle&#39;</span><span class="p">)</span>
+
+<span class="c1"># All lines spoken by any of the Princesses</span>
+<span class="n">episode</span><span class="o">.</span><span class="n">lines</span><span class="o">.</span><span class="n">by</span><span class="p">({</span><span class="s1">&#39;Princess Celestia&#39;</span><span class="p">,</span> <span class="s1">&#39;Princess Celestia&#39;</span><span class="p">,</span> <span class="s1">&#39;Princess Cadance&#39;</span><span class="p">})</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</dd></dl>
+
+<hr class="docutils" />
+<dl class="class">
+<dt id="tv_transcript.Season">
+<em class="property">class </em><code class="descname">Season</code><span class="sig-paren">(</span><em>order=None</em>, <em>name=None</em>, <em>show=None</em>, <em>urls=None</em>, <em>hydrate=False</em><span class="sig-paren">)</span> &rarr; None<a class="reference internal" href="_modules/tv_transcript/models.html#Season"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.Season" title="Permalink to this definition">¶</a></dt>
+<dd><p>Class representing a single season of a television show. Acts as a collection of
+episodes and allows iteration over them. Subclass this class and pass it in as the
+<em>season</em> parameter to the <a class="reference internal" href="#tv_transcript.Show" title="tv_transcript.Show"><code class="xref py py-class docutils literal"><span class="pre">Show</span></code></a> class if episode parsing or scraping
+behavior needs to be changed.</p>
+<dl class="attribute">
+<dt id="tv_transcript.Season.name">
+<code class="descname">name</code><a class="headerlink" href="#tv_transcript.Season.name" title="Permalink to this definition">¶</a></dt>
+<dd><p>The name of the season</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="tv_transcript.Season.order">
+<code class="descname">order</code><a class="headerlink" href="#tv_transcript.Season.order" title="Permalink to this definition">¶</a></dt>
+<dd><p>The season number, 1-indexed, so the first season is 1</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="tv_transcript.Season.show">
+<code class="descname">show</code><a class="headerlink" href="#tv_transcript.Season.show" title="Permalink to this definition">¶</a></dt>
+<dd><p>The <a class="reference internal" href="#tv_transcript.Show" title="tv_transcript.Show"><code class="xref py py-class docutils literal"><span class="pre">Show</span></code></a> this season belongs to</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="tv_transcript.Season.episodes">
+<code class="descname">episodes</code><a class="headerlink" href="#tv_transcript.Season.episodes" title="Permalink to this definition">¶</a></dt>
+<dd><p>A list of <a class="reference internal" href="#tv_transcript.Episode" title="tv_transcript.Episode"><code class="xref py py-class docutils literal"><span class="pre">Episode</span></code></a>s in this season</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="tv_transcript.Season.lines">
+<code class="descname">lines</code><a class="headerlink" href="#tv_transcript.Season.lines" title="Permalink to this definition">¶</a></dt>
+<dd><p>A <a class="reference internal" href="#tv_transcript.LineSet" title="tv_transcript.LineSet"><code class="xref py py-class docutils literal"><span class="pre">LineSet</span></code></a> containing all of the lines in the season</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="tv_transcript.Season.episode">
+<code class="descname">episode</code><span class="sig-paren">(</span><em>name</em><span class="sig-paren">)</span> &rarr; typing.Union[tv_transcript.models.Episode, NoneType]<a class="reference internal" href="_modules/tv_transcript/models.html#Season.episode"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.Season.episode" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns the first episode with <em>name</em>.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="tv_transcript.Season.add_episode">
+<code class="descname">add_episode</code><span class="sig-paren">(</span><em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span> &rarr; tv_transcript.models.Episode<a class="reference internal" href="_modules/tv_transcript/models.html#Season.add_episode"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.Season.add_episode" title="Permalink to this definition">¶</a></dt>
+<dd><p>Creates a new episode and append it internally. All parameters are passed directly to the
+<a class="reference internal" href="#tv_transcript.Episode" title="tv_transcript.Episode"><code class="xref py py-class docutils literal"><span class="pre">Episode</span></code></a> constructor.</p>
+</dd></dl>
+
+</dd></dl>
+
+<hr class="docutils" />
+<dl class="class">
+<dt id="tv_transcript.Episode">
+<em class="property">class </em><code class="descname">Episode</code><span class="sig-paren">(</span><em>season=None</em>, <em>number=None</em>, <em>url=None</em>, <em>hydrate=None</em>, <em>show=None</em><span class="sig-paren">)</span> &rarr; None<a class="reference internal" href="_modules/tv_transcript/models.html#Episode"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.Episode" title="Permalink to this definition">¶</a></dt>
+<dd><p>Class representing a single episode of a television show. Subclass this class
+and pass it as the <em>episode</em> parameter to the <a class="reference internal" href="#tv_transcript.Show" title="tv_transcript.Show"><code class="xref py py-class docutils literal"><span class="pre">Show</span></code></a> class.</p>
+<dl class="attribute">
+<dt id="tv_transcript.Episode.name">
+<code class="descname">name</code><a class="headerlink" href="#tv_transcript.Episode.name" title="Permalink to this definition">¶</a></dt>
+<dd><p>The name of the episode</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="tv_transcript.Episode.number">
+<code class="descname">number</code><a class="headerlink" href="#tv_transcript.Episode.number" title="Permalink to this definition">¶</a></dt>
+<dd><p>The show&#8217;s number in the season, 1-indexed, so the first episode is 1, not 0</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="tv_transcript.Episode.lines">
+<code class="descname">lines</code><a class="headerlink" href="#tv_transcript.Episode.lines" title="Permalink to this definition">¶</a></dt>
+<dd><p>A <a class="reference internal" href="#tv_transcript.LineSet" title="tv_transcript.LineSet"><code class="xref py py-class docutils literal"><span class="pre">LineSet</span></code></a> containing all lines in this episode</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="tv_transcript.Episode.show">
+<code class="descname">show</code><a class="headerlink" href="#tv_transcript.Episode.show" title="Permalink to this definition">¶</a></dt>
+<dd><p>The <a class="reference internal" href="#tv_transcript.Show" title="tv_transcript.Show"><code class="xref py py-class docutils literal"><span class="pre">Show</span></code></a> this episode belongs to</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="tv_transcript.Episode.season">
+<code class="descname">season</code><a class="headerlink" href="#tv_transcript.Episode.season" title="Permalink to this definition">¶</a></dt>
+<dd><p>The <a class="reference internal" href="#tv_transcript.Season" title="tv_transcript.Season"><code class="xref py py-class docutils literal"><span class="pre">Season</span></code></a> this episode belongs to</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="tv_transcript.Episode._parse">
+<code class="descname">_parse</code><span class="sig-paren">(</span><em>page: bs4.BeautifulSoup</em>, <em>url: str</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/tv_transcript/models.html#Episode._parse"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.Episode._parse" title="Permalink to this definition">¶</a></dt>
+<dd><p>Parse the provided episode transcript page into a 2- or 3-tuple with:</p>
+<blockquote>
+<div><ol class="arabic simple">
+<li>The episode name or title</li>
+<li>A <code class="docutils literal"><span class="pre">list</span></code> of <code class="docutils literal"><span class="pre">dict</span></code>, each of which will be passed to the <a class="reference internal" href="#tv_transcript.Line" title="tv_transcript.Line"><code class="xref py py-class docutils literal"><span class="pre">Line</span></code></a> constructor
+defined in the <a class="reference internal" href="#tv_transcript.Show" title="tv_transcript.Show"><code class="xref py py-class docutils literal"><span class="pre">Show</span></code></a> as <code class="docutils literal"><span class="pre">**kwargs</span></code>. In other words each <code class="docutils literal"><span class="pre">dict</span></code> should have
+at least the keys <em>text</em> and <em>speaker</em>.</li>
+<li>Optionally any additional properties in a dictionary that need to be set on the Episode object</li>
+</ol>
+</div></blockquote>
+<p>Subclasses should override this function to enable parsing of episode transcripts.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="tv_transcript.Episode.load">
+<code class="descname">load</code><span class="sig-paren">(</span><em>url: str</em><span class="sig-paren">)</span> &rarr; tv_transcript.models.Episode<a class="reference internal" href="_modules/tv_transcript/models.html#Episode.load"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.Episode.load" title="Permalink to this definition">¶</a></dt>
+<dd><p>Scrapes and parses the episode transcript at <em>url</em> using the <a class="reference internal" href="#tv_transcript.Episode._parse" title="tv_transcript.Episode._parse"><code class="xref py py-meth docutils literal"><span class="pre">_parse()</span></code></a> method,
+then instantiate and store the resultant lines. Override this function to change
+the parsing or scraping behavior.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="tv_transcript.Episode._filename">
+<code class="descname">_filename</code><span class="sig-paren">(</span><em>ext='json'</em><span class="sig-paren">)</span> &rarr; str<a class="reference internal" href="_modules/tv_transcript/models.html#Episode._filename"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.Episode._filename" title="Permalink to this definition">¶</a></dt>
+<dd><p>Override this function to change the file name used when persisting the episode
+transcript to disk.
+By default the name is <code class="docutils literal"><span class="pre">&lt;number&gt;</span> <span class="pre">-</span> <span class="pre">&lt;name&gt;.json</span></code>, where <code class="docutils literal"><span class="pre">number</span></code> is the episode
+number and <code class="docutils literal"><span class="pre">name</span></code> is the episode name with special characters stripped out.</p>
+</dd></dl>
+
+</dd></dl>
+
+<hr class="docutils" />
+<dl class="class">
+<dt id="tv_transcript.Line">
+<em class="property">class </em><code class="descname">Line</code><span class="sig-paren">(</span><em>speaker</em>, <em>text</em>, <em>episode=None</em>, <em>number=None</em><span class="sig-paren">)</span> &rarr; None<a class="reference internal" href="_modules/tv_transcript/models.html#Line"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.Line" title="Permalink to this definition">¶</a></dt>
+<dd><p>Class representing a single line in the transcript. Subclass this class and
+pass it in as the <em>line</em> parameter when instantiating a new <a class="reference internal" href="#tv_transcript.Show" title="tv_transcript.Show"><code class="xref py py-class docutils literal"><span class="pre">Show</span></code></a> object
+so that the object uses the subclass</p>
+<dl class="attribute">
+<dt id="tv_transcript.Line.speaker">
+<code class="descname">speaker</code><a class="headerlink" href="#tv_transcript.Line.speaker" title="Permalink to this definition">¶</a></dt>
+<dd><p>The characters speaking the line, represented by a <code class="docutils literal"><span class="pre">set</span></code> of strings</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="tv_transcript.Line.text">
+<code class="descname">text</code><a class="headerlink" href="#tv_transcript.Line.text" title="Permalink to this definition">¶</a></dt>
+<dd><p>The text spoken in this line</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="tv_transcript.Line.number">
+<code class="descname">number</code><a class="headerlink" href="#tv_transcript.Line.number" title="Permalink to this definition">¶</a></dt>
+<dd><p>The line&#8217;s line number in the episode, 1-indexed</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="tv_transcript.Line.episode">
+<code class="descname">episode</code><a class="headerlink" href="#tv_transcript.Line.episode" title="Permalink to this definition">¶</a></dt>
+<dd><p>The <a class="reference internal" href="#tv_transcript.Episode" title="tv_transcript.Episode"><code class="xref py py-class docutils literal"><span class="pre">Episode</span></code></a> this line is from</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="tv_transcript.Line.wc">
+<code class="descname">wc</code><a class="headerlink" href="#tv_transcript.Line.wc" title="Permalink to this definition">¶</a></dt>
+<dd><p>Number of words in this line</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="tv_transcript.Line._parse_speaker">
+<code class="descname">_parse_speaker</code><span class="sig-paren">(</span><em>speaker</em>, <em>episode</em>, <em>number</em><span class="sig-paren">)</span> &rarr; set<a class="reference internal" href="_modules/tv_transcript/models.html#Line._parse_speaker"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#tv_transcript.Line._parse_speaker" title="Permalink to this definition">¶</a></dt>
+<dd><p>Implement this function in a subclass to extract the speaking character
+from</p>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="#">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">TV Transcript&#8217;s documentation</a><ul>
+<li><a class="reference internal" href="#usage">Usage</a><ul>
+<li><a class="reference internal" href="#extending-transcript-models">Extending Transcript Models</a></li>
+<li><a class="reference internal" href="#serialization-and-deserialization">Serialization and Deserialization</a></li>
+<li><a class="reference internal" href="#iteration">Iteration</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#class-references">Class References</a></li>
+</ul>
+</li>
+</ul>
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="#">Documentation overview</a><ul>
+  </ul></li>
+</ul>
+</div>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/index.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <div><input type="text" name="q" /></div>
+      <div><input type="submit" value="Go" /></div>
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2016, Zhang Yi Jiang.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.4.4</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.8</a>
+      
+      |
+      <a href="_sources/index.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

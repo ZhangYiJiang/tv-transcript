@@ -1,0 +1,647 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>tv_transcript.models &mdash; tv_transcript 0.0.1 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '0.0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="top" title="tv_transcript 0.0.1 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head>
+  <body role="document">
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for tv_transcript.models</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">requests</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">from</span> <span class="nn">hashlib</span> <span class="kn">import</span> <span class="n">md5</span>
+<span class="kn">from</span> <span class="nn">bs4</span> <span class="kn">import</span> <span class="n">BeautifulSoup</span>
+<span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="n">remove_special</span><span class="p">,</span> <span class="n">word_count</span><span class="p">,</span> <span class="n">flatten</span>
+<span class="kn">from</span> <span class="nn">operator</span> <span class="kn">import</span> <span class="n">attrgetter</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">,</span> <span class="n">Union</span><span class="p">,</span> <span class="n">Sequence</span>
+<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">OrderedDict</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">simplejson</span> <span class="kn">as</span> <span class="nn">json</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">json</span>
+
+<span class="n">Param</span> <span class="o">=</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+
+
+<span class="k">class</span> <span class="nc">JSONSerializable</span><span class="p">:</span>
+    <span class="n">_hidden</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">def</span> <span class="nf">to_json</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">o</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__dict__</span>
+        <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_hidden</span><span class="p">:</span>
+            <span class="n">o</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">o</span>
+
+
+<span class="k">class</span> <span class="nc">PageParser</span><span class="p">:</span>
+    <span class="c1"># Folder name of the cache</span>
+    <span class="n">cache</span> <span class="o">=</span> <span class="s1">&#39;cache&#39;</span>
+    <span class="n">parser</span> <span class="o">=</span> <span class="s1">&#39;html.parser&#39;</span>
+    <span class="n">ttl</span> <span class="o">=</span> <span class="mi">360</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">get_file</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">url</span><span class="p">):</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="n">cls</span><span class="o">.</span><span class="n">_cache_path</span><span class="p">(</span><span class="n">url</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">last_modified</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">getmtime</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">last_modified</span><span class="p">)</span> <span class="o">//</span> <span class="mi">60</span> <span class="o">&lt;</span> <span class="n">cls</span><span class="o">.</span><span class="n">ttl</span><span class="p">:</span>
+                <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s1">&#39;r&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">FileNotFoundError</span>
+
+        <span class="k">except</span> <span class="n">FileNotFoundError</span><span class="p">:</span>
+            <span class="n">r</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url</span><span class="p">)</span>
+
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">cls</span><span class="o">.</span><span class="n">cache</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+                <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                    <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">text</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+                <span class="k">pass</span>
+
+            <span class="k">return</span> <span class="n">r</span><span class="o">.</span><span class="n">text</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">_cache_path</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">url</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">cls</span><span class="o">.</span><span class="n">cache</span><span class="p">,</span> <span class="n">md5</span><span class="p">(</span><span class="n">url</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">))</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">())</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">get_page</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">url</span><span class="p">):</span>
+        <span class="c1"># TODO: use pickle for caching</span>
+        <span class="k">return</span> <span class="n">BeautifulSoup</span><span class="p">(</span><span class="n">cls</span><span class="o">.</span><span class="n">get_file</span><span class="p">(</span><span class="n">url</span><span class="p">),</span> <span class="n">cls</span><span class="o">.</span><span class="n">parser</span><span class="p">)</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">clear_cache</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">url</span><span class="p">):</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="n">cls</span><span class="o">.</span><span class="n">_cache_path</span><span class="p">(</span><span class="n">url</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">FileNotFoundError</span><span class="p">:</span>
+            <span class="k">pass</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">clear_all_cache</span><span class="p">(</span><span class="n">cls</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">scandir</span><span class="p">(</span><span class="n">cls</span><span class="o">.</span><span class="n">cache</span><span class="p">):</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">path</span><span class="p">)</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">get_text</span><span class="p">(</span><span class="n">tag</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">tag</span><span class="o">.</span><span class="n">string</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">tag</span><span class="o">.</span><span class="n">string</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="k">return</span> <span class="s1">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tag</span><span class="o">.</span><span class="n">find_all</span><span class="p">(</span><span class="n">string</span><span class="o">=</span><span class="bp">True</span><span class="p">))</span>
+
+
+<span class="k">class</span> <span class="nc">ModelEncoder</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">JSONEncoder</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">default</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">o</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="n">JSONSerializable</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">o</span><span class="o">.</span><span class="n">to_json</span><span class="p">()</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="p">(</span><span class="nb">map</span><span class="p">,</span> <span class="nb">filter</span><span class="p">)):</span>
+            <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="n">o</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="nb">set</span><span class="p">):</span>
+            <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">o</span><span class="p">))</span>
+        <span class="k">return</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">default</span><span class="p">(</span><span class="n">o</span><span class="p">)</span>
+
+
+<span class="k">class</span> <span class="nc">IterableWrapper</span><span class="p">:</span>
+    <span class="n">_iterable</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_iterable</span><span class="p">)</span><span class="o">.</span><span class="n">__iter__</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">item</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_iterable</span><span class="p">)</span><span class="o">.</span><span class="n">__getitem__</span><span class="p">(</span><span class="n">item</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_iterable</span><span class="p">)</span><span class="o">.</span><span class="n">__len__</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">__contains__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">item</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_iterable</span><span class="p">)</span><span class="o">.</span><span class="n">__contains__</span><span class="p">(</span><span class="n">item</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__bool__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">True</span>
+
+
+<div class="viewcode-block" id="LineSet"><a class="viewcode-back" href="../../index.html#tv_transcript.LineSet">[docs]</a><span class="k">class</span> <span class="nc">LineSet</span><span class="p">(</span><span class="n">JSONSerializable</span><span class="p">,</span> <span class="n">IterableWrapper</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Represents an ordered collection of :class:`Line`\ s. This is returned</span>
+<span class="sd">    by the ``lines`` property of :class:`Show`, :class:`Season` and</span>
+<span class="sd">    :class:`Episode` objects, which represents all of the lines contained by them.</span>
+
+<span class="sd">    Subscript access and iteration of the :class:`Line` objects inside</span>
+<span class="sd">    is allowed::</span>
+
+<span class="sd">        # Counting number of lines in an episode</span>
+<span class="sd">        len(mlp.episode(&#39;Lesson Zero&#39;).lines)</span>
+
+<span class="sd">        # Iterating over first twenty lines in a season</span>
+<span class="sd">        for line in mlp.seasons[3].lines[:20]:</span>
+<span class="sd">            print(line.text)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">_iterable</span> <span class="o">=</span> <span class="s1">&#39;lines&#39;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">lines</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">lines</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">for</span> <span class="n">l</span> <span class="ow">in</span> <span class="n">lines</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">lines</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">l</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">to_json</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">lines</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">wc</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;The number of words in all lines inside this set of lines&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">sum</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="n">attrgetter</span><span class="p">(</span><span class="s1">&#39;wc&#39;</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">lines</span><span class="p">))</span>
+
+<div class="viewcode-block" id="LineSet.speakers"><a class="viewcode-back" href="../../index.html#tv_transcript.LineSet.speakers">[docs]</a>    <span class="k">def</span> <span class="nf">speakers</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">set</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Returns a ``set`` of strings representing all speaking characters involved. ::</span>
+
+<span class="sd">            &gt;&gt;&gt; mlp.episode(&#39;Maud Pie&#39;).lines.speakers()</span>
+<span class="sd">            {&#39;Hummingway&#39;, &#39;Rarity&#39;, &#39;Applejack&#39;, &#39;Rainbow Dash&#39;, &#39;Twilight Sparkle&#39;, &#39;Fluttershy&#39;, &#39;Winona&#39;,</span>
+<span class="sd">             &#39;Maud Pie&#39;, &#39;Pinkie Pie&#39;}</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">speakers</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">lines</span><span class="p">:</span>
+            <span class="n">speakers</span> <span class="o">|=</span> <span class="n">line</span><span class="o">.</span><span class="n">speaker</span>
+        <span class="k">return</span> <span class="n">speakers</span></div>
+
+<div class="viewcode-block" id="LineSet.filter"><a class="viewcode-back" href="../../index.html#tv_transcript.LineSet.filter">[docs]</a>    <span class="k">def</span> <span class="nf">filter</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">predicate</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;LineSet&#39;</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Returns a new ``LineSet`` with only the lines that passes the *predicate*</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">LineSet</span><span class="p">(</span><span class="nb">filter</span><span class="p">(</span><span class="n">predicate</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">lines</span><span class="p">))</span></div>
+
+<div class="viewcode-block" id="LineSet.map"><a class="viewcode-back" href="../../index.html#tv_transcript.LineSet.map">[docs]</a>    <span class="k">def</span> <span class="nf">map</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">function</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;LineSet&#39;</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Returns a new ``LineSet`` with all of the lines transformed passing through the</span>
+<span class="sd">        *function*. If a new ``LineSet`` is not needed, the global ``map()`` function</span>
+<span class="sd">        should be used instead.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">LineSet</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="n">function</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">lines</span><span class="p">))</span></div>
+
+<div class="viewcode-block" id="LineSet.by"><a class="viewcode-back" href="../../index.html#tv_transcript.LineSet.by">[docs]</a>    <span class="k">def</span> <span class="nf">by</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">char</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;LineSet&#39;</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Returns a :class:`LineSet` of all lines spoken by a single character, or</span>
+<span class="sd">        any one of a group of characters. ::</span>
+
+<span class="sd">            # Lines spoken by Twilight</span>
+<span class="sd">            episode.lines.by(&#39;Twilight Sparkle&#39;)</span>
+
+<span class="sd">            # All lines spoken by any of the Princesses</span>
+<span class="sd">            episode.lines.by({&#39;Princess Celestia&#39;, &#39;Princess Celestia&#39;, &#39;Princess Cadance&#39;})</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">char</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="n">char</span> <span class="o">=</span> <span class="p">{</span><span class="n">char</span><span class="p">}</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">char</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">char</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="k">lambda</span> <span class="n">l</span><span class="p">:</span> <span class="n">char</span> <span class="o">&amp;</span> <span class="n">l</span><span class="o">.</span><span class="n">speaker</span><span class="p">)</span></div>
+
+    <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">lines</span><span class="o">.</span><span class="n">__repr__</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="Line"><a class="viewcode-back" href="../../index.html#tv_transcript.Line">[docs]</a><span class="k">class</span> <span class="nc">Line</span><span class="p">(</span><span class="n">JSONSerializable</span><span class="p">,</span> <span class="n">IterableWrapper</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Class representing a single line in the transcript. Subclass this class and</span>
+<span class="sd">    pass it in as the *line* parameter when instantiating a new :class:`Show` object</span>
+<span class="sd">    so that the object uses the subclass</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">_hidden</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;episode&#39;</span><span class="p">,</span> <span class="p">]</span>
+    <span class="n">_iterable</span> <span class="o">=</span> <span class="s1">&#39;text&#39;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">speaker</span><span class="p">,</span> <span class="n">text</span><span class="p">,</span> <span class="n">episode</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">number</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">episode</span> <span class="o">=</span> <span class="n">episode</span>
+
+        <span class="k">if</span> <span class="n">number</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">and</span> <span class="n">episode</span><span class="p">:</span>
+            <span class="n">number</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">episode</span><span class="o">.</span><span class="n">lines</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">number</span> <span class="o">=</span> <span class="n">number</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parse_text</span><span class="p">(</span><span class="n">text</span><span class="p">,</span> <span class="n">episode</span><span class="p">,</span> <span class="n">number</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">speaker</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="n">speaker</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parse_speaker</span><span class="p">(</span><span class="n">speaker</span><span class="p">,</span> <span class="n">episode</span><span class="p">,</span> <span class="n">number</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">speaker</span><span class="p">,</span> <span class="nb">set</span><span class="p">):</span>
+            <span class="n">speaker</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">speaker</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">speaker</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">speaker</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">wc</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;Number of words in this line&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">word_count</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">text</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Line._parse_speaker"><a class="viewcode-back" href="../../index.html#tv_transcript.Line._parse_speaker">[docs]</a>    <span class="k">def</span> <span class="nf">_parse_speaker</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">speaker</span><span class="p">,</span> <span class="n">episode</span><span class="p">,</span> <span class="n">number</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">set</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Implement this function in a subclass to extract the speaking character</span>
+<span class="sd">        from</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span></div>
+
+    <span class="k">def</span> <span class="nf">_parse_text</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">,</span> <span class="n">episode</span><span class="p">,</span> <span class="n">number</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+
+    <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">speaker</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;: &#39;</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">text</span></div>
+
+
+<div class="viewcode-block" id="Episode"><a class="viewcode-back" href="../../index.html#tv_transcript.Episode">[docs]</a><span class="k">class</span> <span class="nc">Episode</span><span class="p">(</span><span class="n">PageParser</span><span class="p">,</span> <span class="n">JSONSerializable</span><span class="p">,</span> <span class="n">IterableWrapper</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Class representing a single episode of a television show. Subclass this class</span>
+<span class="sd">    and pass it as the *episode* parameter to the :class:`Show` class.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">_hidden</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;show&#39;</span><span class="p">,</span> <span class="s1">&#39;season&#39;</span><span class="p">]</span>
+    <span class="n">_iterable</span> <span class="o">=</span> <span class="s1">&#39;lines&#39;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">season</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">number</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">url</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">hydrate</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">show</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">lines</span> <span class="o">=</span> <span class="n">LineSet</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">season</span> <span class="o">=</span> <span class="n">season</span>
+
+        <span class="k">if</span> <span class="n">show</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">and</span> <span class="n">season</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">show</span> <span class="o">=</span> <span class="n">season</span><span class="o">.</span><span class="n">show</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">show</span> <span class="o">=</span> <span class="n">show</span>
+
+        <span class="k">if</span> <span class="n">hydrate</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">hydrate</span><span class="p">(</span><span class="n">hydrate</span><span class="p">)</span>
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="n">url</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">url</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="k">if</span> <span class="n">number</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">number</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">season</span><span class="o">.</span><span class="n">episodes</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">number</span> <span class="o">=</span> <span class="n">number</span>
+
+<div class="viewcode-block" id="Episode._parse"><a class="viewcode-back" href="../../index.html#tv_transcript.Episode._parse">[docs]</a>    <span class="k">def</span> <span class="nf">_parse</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">page</span><span class="p">:</span> <span class="n">BeautifulSoup</span><span class="p">,</span> <span class="n">url</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Parse the provided episode transcript page into a 2- or 3-tuple with:</span>
+
+<span class="sd">          1. The episode name or title</span>
+<span class="sd">          2. A ``list`` of ``dict``, each of which will be passed to the :class:`Line` constructor</span>
+<span class="sd">             defined in the :class:`Show` as ``**kwargs``. In other words each ``dict`` should have</span>
+<span class="sd">             at least the keys *text* and *speaker*.</span>
+<span class="sd">          3. Optionally any additional properties in a dictionary that need to be set on the Episode object</span>
+
+<span class="sd">        Subclasses should override this function to enable parsing of episode transcripts.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span></div>
+
+<div class="viewcode-block" id="Episode.load"><a class="viewcode-back" href="../../index.html#tv_transcript.Episode.load">[docs]</a>    <span class="k">def</span> <span class="nf">load</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">url</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;Episode&#39;</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Scrapes and parses the episode transcript at *url* using the :meth:`_parse` method,</span>
+<span class="sd">        then instantiate and store the resultant lines. Override this function to change</span>
+<span class="sd">        the parsing or scraping behavior.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">ret</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parse</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_page</span><span class="p">(</span><span class="n">url</span><span class="p">),</span> <span class="n">url</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">ret</span><span class="p">)</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">lines</span><span class="p">,</span> <span class="n">kwargs</span> <span class="o">=</span> <span class="n">ret</span>
+            <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">lines</span> <span class="o">=</span> <span class="n">ret</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_add_lines</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span></div>
+
+    <span class="k">def</span> <span class="nf">hydrate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;Episode&#39;</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">k</span> <span class="o">!=</span> <span class="s1">&#39;lines&#39;</span><span class="p">:</span>
+                <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_add_lines</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="bp">self</span>
+
+    <span class="k">def</span> <span class="nf">serialize</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_filepath</span><span class="p">(),</span> <span class="n">encoding</span><span class="o">=</span><span class="s1">&#39;utf-8&#39;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s1">&#39;w&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">cls</span><span class="o">=</span><span class="n">ModelEncoder</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_add_lines</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lines</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">lines</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">add_line</span><span class="p">(</span><span class="o">**</span><span class="n">line</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">add_line</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Line</span><span class="p">:</span>
+        <span class="n">kwargs</span><span class="p">[</span><span class="s1">&#39;episode&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">show</span><span class="o">.</span><span class="n">create_line</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">lines</span><span class="o">.</span><span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">line</span>
+
+    <span class="k">def</span> <span class="nf">_filepath</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">season</span><span class="o">.</span><span class="n">storage_dir</span><span class="p">(),</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filename</span><span class="p">())</span>
+
+<div class="viewcode-block" id="Episode._filename"><a class="viewcode-back" href="../../index.html#tv_transcript.Episode._filename">[docs]</a>    <span class="k">def</span> <span class="nf">_filename</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ext</span><span class="o">=</span><span class="s1">&#39;json&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Override this function to change the file name used when persisting the episode</span>
+<span class="sd">        transcript to disk.</span>
+<span class="sd">        By default the name is ``&lt;number&gt; - &lt;name&gt;.json``, where ``number`` is the episode</span>
+<span class="sd">        number and ``name`` is the episode name with special characters stripped out.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">number</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39; - &#39;</span> <span class="o">+</span> <span class="n">remove_special</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;.&#39;</span> <span class="o">+</span> <span class="n">ext</span></div>
+
+    <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span></div>
+
+
+<div class="viewcode-block" id="Season"><a class="viewcode-back" href="../../index.html#tv_transcript.Season">[docs]</a><span class="k">class</span> <span class="nc">Season</span><span class="p">(</span><span class="n">IterableWrapper</span><span class="p">,</span> <span class="n">JSONSerializable</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Class representing a single season of a television show. Acts as a collection of</span>
+<span class="sd">    episodes and allows iteration over them. Subclass this class and pass it in as the</span>
+<span class="sd">    *season* parameter to the :class:`Show` class if episode parsing or scraping</span>
+<span class="sd">    behavior needs to be changed.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">_iterable</span> <span class="o">=</span> <span class="s1">&#39;episodes&#39;</span>
+
+    <span class="n">_hidden</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;show&#39;</span><span class="p">,</span> <span class="p">]</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">order</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">show</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">urls</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">hydrate</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">show</span> <span class="o">=</span> <span class="n">show</span>
+
+        <span class="k">if</span> <span class="n">order</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">order</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">show</span><span class="o">.</span><span class="n">seasons</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="n">name</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">name</span> <span class="o">=</span> <span class="n">order</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">order</span> <span class="o">=</span> <span class="n">order</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">name</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">episodes</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">if</span> <span class="n">urls</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">urls</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">hydrate</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">hydrate</span><span class="p">()</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">lines</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LineSet</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;A :class:`LineSet` containing all of the lines in the season&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">LineSet</span><span class="p">(</span><span class="o">*</span><span class="nb">map</span><span class="p">(</span><span class="n">attrgetter</span><span class="p">(</span><span class="s1">&#39;lines&#39;</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">episodes</span><span class="p">))</span>
+
+<div class="viewcode-block" id="Season.episode"><a class="viewcode-back" href="../../index.html#tv_transcript.Season.episode">[docs]</a>    <span class="k">def</span> <span class="nf">episode</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Episode</span><span class="p">]:</span>
+        <span class="sd">&quot;&quot;&quot;Returns the first episode with *name*.&quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">episode</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">episodes</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">episode</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="n">name</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">episode</span></div>
+
+    <span class="k">def</span> <span class="nf">storage_dir</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">show</span><span class="o">.</span><span class="n">storage_dir</span><span class="p">(),</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">load</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">episodes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;Season&#39;</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">url</span> <span class="ow">in</span> <span class="n">episodes</span><span class="p">:</span>
+            <span class="n">episode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">show</span><span class="o">.</span><span class="n">create_episode</span><span class="p">(</span><span class="n">season</span><span class="o">=</span><span class="bp">self</span><span class="p">,</span> <span class="n">url</span><span class="o">=</span><span class="n">url</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">add_episode</span><span class="p">(</span><span class="n">episode</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">sort</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span>
+
+    <span class="k">def</span> <span class="nf">serialize</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">storage_dir</span><span class="p">()):</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">storage_dir</span><span class="p">())</span>
+
+        <span class="k">for</span> <span class="n">episode</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">episodes</span><span class="p">:</span>
+            <span class="n">episode</span><span class="o">.</span><span class="n">serialize</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">hydrate</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;Season&#39;</span><span class="p">:</span>
+        <span class="k">for</span> <span class="nb">file</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">scandir</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">storage_dir</span><span class="p">()):</span>
+            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="nb">file</span><span class="o">.</span><span class="n">path</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">add_episode</span><span class="p">(</span><span class="n">hydrate</span><span class="o">=</span><span class="n">data</span><span class="p">,</span> <span class="n">season</span><span class="o">=</span><span class="bp">self</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">sort</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span>
+
+    <span class="k">def</span> <span class="nf">sort</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="s1">&#39;number&#39;</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">episodes</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="n">attrgetter</span><span class="p">(</span><span class="n">key</span><span class="p">))</span>
+
+<div class="viewcode-block" id="Season.add_episode"><a class="viewcode-back" href="../../index.html#tv_transcript.Season.add_episode">[docs]</a>    <span class="k">def</span> <span class="nf">add_episode</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Episode</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Creates a new episode and append it internally. All parameters are passed directly to the</span>
+<span class="sd">        :class:`Episode` constructor.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">episode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">show</span><span class="o">.</span><span class="n">create_episode</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">episodes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">episode</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">episode</span></div>
+
+    <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span></div>
+
+
+<div class="viewcode-block" id="Show"><a class="viewcode-back" href="../../index.html#tv_transcript.Show">[docs]</a><span class="k">class</span> <span class="nc">Show</span><span class="p">(</span><span class="n">PageParser</span><span class="p">,</span> <span class="n">IterableWrapper</span><span class="p">,</span> <span class="n">JSONSerializable</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Top level class representing a television show. Each Show object is an ordered</span>
+<span class="sd">    collection of Seasons and is an iterable that iterates over Season objects.</span>
+
+<span class="sd">    To load existing serialized data from disk, pass in *hydrate* as ``True``.</span>
+
+<span class="sd">    To parse a show&#39;s transcript index page, subclass and implement the</span>
+<span class="sd">    :meth:`._parse` method, then pass in the URL of the transcript index page</span>
+<span class="sd">    as *url* when instantiating a new instance of the subclass.</span>
+
+<span class="sd">    If *line*, *episode*, *season* are passed subclasses to :class:`Line`, :class:`Episode`</span>
+<span class="sd">    and :class:`Season` respectively, they will be used in place of the default</span>
+<span class="sd">    classes when they are instantiated. This is needed to enable parsing of transcripts</span>
+<span class="sd">    as well as modifying parsing and scraping behavior, as well as adding additional</span>
+<span class="sd">    methods and attributes to the transcript objects.</span>
+
+<span class="sd">    The *parser* which BeautifulSoup uses when parsing the HTML. See</span>
+<span class="sd">    `BeautifulSoup&#39;s documentation &lt;https://www.crummy.com/software/BeautifulSoup/bs4/doc/#installing-a-parser&gt;`_</span>
+<span class="sd">    for the parsers that are available.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">ttl</span> <span class="o">=</span> <span class="mi">60</span> <span class="o">*</span> <span class="mi">24</span>
+    <span class="n">_iterable</span> <span class="o">=</span> <span class="s1">&#39;seasons&#39;</span>
+    <span class="n">_hidden</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;create_episode&#39;</span><span class="p">,</span> <span class="s1">&#39;create_season&#39;</span><span class="p">,</span> <span class="s1">&#39;create_line&#39;</span><span class="p">,</span> <span class="p">]</span>
+
+    <span class="n">seasons</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">url</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">hydrate</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">season</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">episode</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">line</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">parser</span><span class="o">=</span><span class="s1">&#39;html.parser&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">seasons</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_episode</span> <span class="o">=</span> <span class="n">episode</span> <span class="k">if</span> <span class="n">episode</span> <span class="k">else</span> <span class="n">Episode</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_season</span> <span class="o">=</span> <span class="n">season</span> <span class="k">if</span> <span class="n">season</span> <span class="k">else</span> <span class="n">Season</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_line</span> <span class="o">=</span> <span class="n">line</span> <span class="k">if</span> <span class="n">line</span> <span class="k">else</span> <span class="n">Line</span>
+        <span class="n">PageParser</span><span class="o">.</span><span class="n">parser</span> <span class="o">=</span> <span class="n">parser</span>
+
+        <span class="k">if</span> <span class="n">url</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">url</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">hydrate</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">hydrate</span><span class="p">()</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">episodes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">Episode</span><span class="p">]:</span>
+        <span class="sd">&quot;&quot;&quot;List of all :class:`Episode` in this show&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">flatten</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">episodes</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">seasons</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">lines</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LineSet</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;A :class:`LineSet` containing all lines in the show&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">LineSet</span><span class="p">(</span><span class="o">*</span><span class="nb">map</span><span class="p">(</span><span class="n">attrgetter</span><span class="p">(</span><span class="s1">&#39;lines&#39;</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">seasons</span><span class="p">))</span>
+
+<div class="viewcode-block" id="Show.episode"><a class="viewcode-back" href="../../index.html#tv_transcript.Show.episode">[docs]</a>    <span class="k">def</span> <span class="nf">episode</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Episode</span><span class="p">]:</span>
+        <span class="sd">&quot;&quot;&quot;Get the first episode with *name*. &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">episode</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">episodes</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">episode</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="n">name</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">episode</span></div>
+
+<div class="viewcode-block" id="Show.season"><a class="viewcode-back" href="../../index.html#tv_transcript.Show.season">[docs]</a>    <span class="k">def</span> <span class="nf">season</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Season</span><span class="p">]:</span>
+        <span class="sd">&quot;&quot;&quot;Get the first season with *name*.&quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">season</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">seasons</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">season</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="n">name</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">season</span></div>
+
+<div class="viewcode-block" id="Show.serialize"><a class="viewcode-back" href="../../index.html#tv_transcript.Show.serialize">[docs]</a>    <span class="k">def</span> <span class="nf">serialize</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Persists the transcript data in this model to disk in JSON format. Saves the data to the</span>
+<span class="sd">        directory given my :meth:`storage_dir`.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">storage_dir</span><span class="p">()):</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">storage_dir</span><span class="p">())</span>
+
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">seasons_file</span><span class="p">(),</span> <span class="n">encoding</span><span class="o">=</span><span class="s1">&#39;utf-8&#39;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s1">&#39;w&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">([</span><span class="n">s</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">seasons</span><span class="p">],</span> <span class="n">f</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">season</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">seasons</span><span class="p">:</span>
+            <span class="n">season</span><span class="o">.</span><span class="n">serialize</span><span class="p">()</span></div>
+
+<div class="viewcode-block" id="Show._parse"><a class="viewcode-back" href="../../index.html#tv_transcript.Show._parse">[docs]</a>    <span class="k">def</span> <span class="nf">_parse</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">page</span><span class="p">:</span> <span class="n">BeautifulSoup</span><span class="p">,</span> <span class="n">url</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Union</span><span class="p">[</span><span class="n">OrderedDict</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]]]]:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Implement this method in a subclasses such that it returns an ``OrderedDict`` or a list of</span>
+<span class="sd">        2-tuples of season name as key and a list of episode URLs as value. ::</span>
+
+<span class="sd">            def _parse(page, url):</span>
+<span class="sd">               seasons = OrderedDict()</span>
+<span class="sd">               for i, table in enumerate(page.select(&#39;#WikiaArticle table&#39;)):</span>
+<span class="sd">                   # key: season names, value: list of episode transcript URL</span>
+<span class="sd">                   seasons[&#39;Season &#39; + i] = [a.attr[&#39;href&#39;] for a in table.find_all(&#39;a&#39;)]</span>
+<span class="sd">               return seasons</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span></div>
+
+<div class="viewcode-block" id="Show.add_season"><a class="viewcode-back" href="../../index.html#tv_transcript.Show.add_season">[docs]</a>    <span class="k">def</span> <span class="nf">add_season</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Season</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Add a new season object to the current list of seasons. Passes all arguments</span>
+<span class="sd">        to the constructor of the :class:`Season` class used by the show. There is usually</span>
+<span class="sd">        no need to call this function directly since :meth:`load` or :meth:`hydrate`</span>
+<span class="sd">        will call this automatically.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">season</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">create_season</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">seasons</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">season</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">season</span></div>
+
+<div class="viewcode-block" id="Show.storage_dir"><a class="viewcode-back" href="../../index.html#tv_transcript.Show.storage_dir">[docs]</a>    <span class="k">def</span> <span class="nf">storage_dir</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Returns the directory to store the data when serializing the transcript.</span>
+<span class="sd">        Override this method to change the location. Defaults to the lowercase of the class name.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__name__</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span></div>
+
+    <span class="k">def</span> <span class="nf">seasons_file</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">storage_dir</span><span class="p">(),</span> <span class="s1">&#39;seasons.json&#39;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Show.load"><a class="viewcode-back" href="../../index.html#tv_transcript.Show.load">[docs]</a>    <span class="k">def</span> <span class="nf">load</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">url</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;Show&#39;</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Scrape and parse the transcript index page given by *url* to create seasons of</span>
+<span class="sd">        episodes of the TV show. There is no need to call this function if *url*</span>
+<span class="sd">        is already passed to the constructor.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">seasons_page</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_page</span><span class="p">(</span><span class="n">url</span><span class="p">)</span>
+        <span class="n">seasons</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parse</span><span class="p">(</span><span class="n">seasons_page</span><span class="p">,</span> <span class="n">url</span><span class="p">)</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">items</span> <span class="o">=</span> <span class="n">seasons</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">AttributeError</span><span class="p">:</span>
+            <span class="n">items</span> <span class="o">=</span> <span class="n">seasons</span>
+
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">episodes</span> <span class="ow">in</span> <span class="n">items</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">add_season</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">name</span><span class="p">,</span> <span class="n">show</span><span class="o">=</span><span class="bp">self</span><span class="p">,</span> <span class="n">urls</span><span class="o">=</span><span class="n">episodes</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span></div>
+
+<div class="viewcode-block" id="Show.hydrate"><a class="viewcode-back" href="../../index.html#tv_transcript.Show.hydrate">[docs]</a>    <span class="k">def</span> <span class="nf">hydrate</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;Show&#39;</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Loads persisted transcript data from disk. There is no need to call this function</span>
+<span class="sd">        if the *hydrate* parameter is already passed to the constructor.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">seasons_file</span><span class="p">(),</span> <span class="n">encoding</span><span class="o">=</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">seasons</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">season</span> <span class="ow">in</span> <span class="n">seasons</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">add_season</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">season</span><span class="p">,</span> <span class="n">show</span><span class="o">=</span><span class="bp">self</span><span class="p">,</span> <span class="n">hydrate</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper"><div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <div><input type="text" name="q" /></div>
+      <div><input type="submit" value="Go" /></div>
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2016, Zhang Yi Jiang.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.4.4</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.8</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>
