@@ -53,4 +53,3 @@ ENV/
 
 .idea
 docs/_*
-!docs/_build/html
